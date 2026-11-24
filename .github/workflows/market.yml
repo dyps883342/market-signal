@@ -1,0 +1,50 @@
+name: Market Signal Cloud
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 0,4,6,8,14,20,22 * * 1-5'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: market-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: app/data
+          key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: market-data-
+      - name: Update market data
+        shell: powershell
+        run: |
+          & .\app\update.ps1 -Silent
+          if (!(Test-Path .\app\dashboard.html)) { throw 'Dashboard missing' }
+          $html = Get-Content .\app\dashboard.html -Raw -Encoding UTF8
+          if ($html -notmatch '群組績效總覽' -or !(Test-Path .\app\data\TWII.csv) -or !(Test-Path .\app\data\GSPC.csv)) { throw 'Incomplete market data; existing website retained' }
+          New-Item -ItemType Directory -Force site | Out-Null
+          Copy-Item .\app\dashboard.html .\site\index.html
+      - uses: actions/cache/save@v4
+        with:
+          path: app/data
+          key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
