@@ -1,0 +1,21 @@
+{
+  "buy_thresholds": [
+    10,
+    16,
+    22,
+    30,
+    45
+  ],
+  "buy_weights": [
+    10,
+    20,
+    30,
+    20,
+    20
+  ],
+  "sell_interval": 10,
+  "sell_ratio": 20,
+  "cycle_reset_threshold": 10,
+  "initial_history_months": 6,
+  "update_time": "08:00"
+}
