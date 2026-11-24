@@ -2,7 +2,12 @@ name: Market Signal Cloud
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 0,4,6,8,14,20,22 * * 1-5'
+    # Taiwan session 09:07–13:37 and after close; UTC+8
+    - cron: '7,37 1-5 * * 1-5'
+    - cron: '17 0,6,8 * * 1-5'
+    # US session, covering both EST and EDT, including Saturday morning in Taiwan
+    - cron: '7,37 13-21 * * 1-5'
+    - cron: '17 22 * * 1-5'
 permissions:
   contents: read
   pages: write
