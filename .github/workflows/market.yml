@@ -5,9 +5,11 @@ on:
     # Taiwan session 09:07–13:37 and after close; UTC+8
     - cron: '7,37 1-5 * * 1-5'
     - cron: '17 0,6,8 * * 1-5'
-    # US session, covering both EST and EDT, including Saturday morning in Taiwan
-    - cron: '7,37 13-21 * * 1-5'
-    - cron: '17 22 * * 1-5'
+    # US: 09:45, 12:45, 16:17 ET; DST-specific UTC slots gated in build
+    - cron: '45 13,16 * * 1-5'
+    - cron: '17 20 * * 1-5'
+    - cron: '45 14,17 * * 1-5'
+    - cron: '17 21 * * 1-5'
 permissions:
   contents: read
   pages: write
@@ -19,14 +21,31 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 20
+    outputs:
+      go: ${{ steps.timing.outputs.go }}
     steps:
+      - name: Check US seasonal schedule
+        id: timing
+        shell: powershell
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          $tz = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+          $dst = $tz.IsDaylightSavingTime([TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow,$tz))
+          $summer = @('45 13,16 * * 1-5','17 20 * * 1-5')
+          $winter = @('45 14,17 * * 1-5','17 21 * * 1-5')
+          $go = -not (($env:EVENT_SCHEDULE -in $summer -and -not $dst) -or ($env:EVENT_SCHEDULE -in $winter -and $dst))
+          "go=$($go.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v5
+        if: steps.timing.outputs.go == 'true'
       - uses: actions/cache/restore@v5
+        if: steps.timing.outputs.go == 'true'
         with:
           path: app/data
           key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: market-data-
       - name: Update market data
+        if: steps.timing.outputs.go == 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -42,15 +61,19 @@ jobs:
           New-Item -ItemType Directory -Force $site | Out-Null
           Copy-Item -LiteralPath $dashboard -Destination (Join-Path $site 'index.html')
       - uses: actions/cache/save@v5
+        if: steps.timing.outputs.go == 'true'
         with:
           path: app/data
           key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/configure-pages@v5
+        if: steps.timing.outputs.go == 'true'
       - uses: actions/upload-pages-artifact@v3
+        if: steps.timing.outputs.go == 'true'
         with:
           path: site
   deploy:
     needs: build
+    if: needs.build.outputs.go == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
