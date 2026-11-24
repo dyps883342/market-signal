@@ -15,8 +15,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
+      - uses: actions/checkout@v5
+      - uses: actions/cache/restore@v5
         with:
           path: app/data
           key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
@@ -24,13 +24,19 @@ jobs:
       - name: Update market data
         shell: powershell
         run: |
-          & .\app\update.ps1 -Silent
-          if (!(Test-Path .\app\dashboard.html)) { throw 'Dashboard missing' }
-          $html = Get-Content .\app\dashboard.html -Raw -Encoding UTF8
-          if ($html -notmatch '群組績效總覽' -or !(Test-Path .\app\data\TWII.csv) -or !(Test-Path .\app\data\GSPC.csv)) { throw 'Incomplete market data; existing website retained' }
-          New-Item -ItemType Directory -Force site | Out-Null
-          Copy-Item .\app\dashboard.html .\site\index.html
-      - uses: actions/cache/save@v4
+          $ErrorActionPreference = 'Stop'
+          $root = $env:GITHUB_WORKSPACE
+          $app = Join-Path $root 'app'
+          $dashboard = Join-Path $app 'dashboard.html'
+          & (Join-Path $app 'update.ps1') -Silent
+          Set-Location -LiteralPath $root
+          if (!(Test-Path -LiteralPath $dashboard)) { throw "Dashboard missing: $dashboard" }
+          $html = Get-Content -LiteralPath $dashboard -Raw -Encoding UTF8
+          if ($html -notmatch 'class=.groupoverview' -or !(Test-Path (Join-Path $app 'data/TWII.csv')) -or !(Test-Path (Join-Path $app 'data/GSPC.csv'))) { throw 'Incomplete market data; existing website retained' }
+          $site = Join-Path $root 'site'
+          New-Item -ItemType Directory -Force $site | Out-Null
+          Copy-Item -LiteralPath $dashboard -Destination (Join-Path $site 'index.html')
+      - uses: actions/cache/save@v5
         with:
           path: app/data
           key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
