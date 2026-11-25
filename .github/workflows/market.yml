@@ -2,13 +2,12 @@ name: Market Signal Cloud
 on:
   workflow_dispatch:
   schedule:
-    # Taiwan session 09:07–13:37 and after close; UTC+8
-    - cron: '7,37 1-5 * * 1-5'
-    - cron: '17 0,6,8 * * 1-5'
-    # US: 09:45, 12:45, 16:17 ET; DST-specific UTC slots gated in build
-    - cron: '45 13,16 * * 1-5'
+    # Taiwan: 08:17, 09:07, 13:37, 14:17 (UTC+8)
+    - cron: '17 0,6 * * 1-5'
+    - cron: '7 1 * * 1-5'
+    - cron: '37 5 * * 1-5'
+    # US close: 16:17 ET; seasonal gate selects the correct UTC slot
     - cron: '17 20 * * 1-5'
-    - cron: '45 14,17 * * 1-5'
     - cron: '17 21 * * 1-5'
 permissions:
   contents: read
@@ -32,8 +31,8 @@ jobs:
         run: |
           $tz = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
           $dst = $tz.IsDaylightSavingTime([TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow,$tz))
-          $summer = @('45 13,16 * * 1-5','17 20 * * 1-5')
-          $winter = @('45 14,17 * * 1-5','17 21 * * 1-5')
+          $summer = @('17 20 * * 1-5')
+          $winter = @('17 21 * * 1-5')
           $go = -not (($env:EVENT_SCHEDULE -in $summer -and -not $dst) -or ($env:EVENT_SCHEDULE -in $winter -and $dst))
           "go=$($go.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v5
