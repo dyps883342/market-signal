@@ -3,6 +3,22 @@ function Get-WatchHtml {
  $groups=ConvertFrom-Json -InputObject (Get-Content (Join-Path $PSScriptRoot 'watchlist.json') -Raw -Encoding UTF8)
  if($groups.Count -ne 6){throw '觀察清單應包含六個群組'}
  $codes=@($groups | ForEach-Object {$_.symbols} | Sort-Object -Unique)
+ # Chinese security names are sourced from official exchange listings, with a persistent last-known-good cache.
+ $zhNames=@{}
+ $namesFile=Join-Path $PSScriptRoot 'data/security-names.json'
+ if(Test-Path $namesFile){try{$savedNames=Get-Content $namesFile -Raw -Encoding UTF8 | ConvertFrom-Json;foreach($p in $savedNames.PSObject.Properties){if($p.Value){$zhNames[$p.Name]=[string]$p.Value}}}catch{}}
+ foreach($url in @('https://openapi.twse.com.tw/v1/opendata/t187ap03_L','https://openapi.twse.com.tw/v1/opendata/t187ap47_L','https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O','https://www.tpex.org.tw/openapi/v1/tpex_etf_daily_close_quotes')){
+  try{
+   $items=Invoke-RestMethod -Uri $url -TimeoutSec 12 -UserAgent 'Mozilla/5.0'
+   foreach($item in $items){
+    $id=[string]$item.'公司代號';if(-not $id){$id=[string]$item.'證券代號'};if(-not $id){$id=[string]$item.'Code'};if(-not $id){$id=[string]$item.'SecuritiesCompanyCode'}
+    $nm=[string]$item.'公司簡稱';if(-not $nm){$nm=[string]$item.'證券名稱'};if(-not $nm){$nm=[string]$item.'Name'};if(-not $nm){$nm=[string]$item.'SecuritiesCompanyName'}
+    if($id -in $codes -and $nm -match '[\u3400-\u9fff]'){$zhNames[$id]=$nm.Trim()}
+   }
+  }catch{Write-Warning ('證券名稱來源暫時無法取得：'+$url)}
+ }
+ if($zhNames.Count){$null=New-Item -ItemType Directory -Force (Split-Path $namesFile);$zhNames | ConvertTo-Json -Depth 3 | Set-Content "$namesFile.tmp" -Encoding UTF8;Move-Item "$namesFile.tmp" $namesFile -Force}
+
  $cacheDir=Join-Path $PSScriptRoot 'data/watchlist';$null=New-Item -ItemType Directory -Force $cacheDir
  $tz=[TimeZoneInfo]::FindSystemTimeZoneById('Taipei Standard Time')
  $now=[TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow,$tz)
@@ -84,8 +100,8 @@ function Get-WatchHtml {
  $visible=@($dates | Select-Object -Last 10);$visible=@($visible | Sort-Object)
  $html=$summary+'<div class="watchhead"><h2>觀察清單</h2><p>預設依績效評分降冪排序（3 日累積＋10 日累積；非實際期間報酬）；點擊日期、即時或任一累積欄可獨立排序。即時欄為最近報價及相對前一交易日收盤漲跌幅（可能延遲），休市沿用最近報價；3 日及 10 日累積僅使用已完成交易日收盤價，不包含即時報價；缺值排最後。</p></div><div class="watchgroups">'
  foreach($group in $groups){
-  $html+="<section class='watchgroup'><h3>$(E $group.section)－$(E $group.name)</h3><div class='watchscroll'><table class='watchtable'><thead><tr><th>代號</th>"
-  foreach($d in $visible){$html+="<th><button type='button' class='watchsort' data-key='d$d'>$(E $d)</button></th>"};$html+='<th><button type="button" class="watchsort" data-key="three">3 日累積</button></th><th><button type="button" class="watchsort" data-key="ten">10 日累積</button></th><th><button type="button" class="watchsort" data-key="score">績效評分</button></th><th>狀態</th><th><button type="button" class="watchsort" data-key="live">即時</button></th></tr></thead><tbody>'
+  $html+="<section class='watchgroup'><h3>$(E $group.section)－$(E $group.name)</h3><div class='watchscroll'><table class='watchtable'><thead><tr><th>代號</th><th><button type='button' class='watchsort' data-key='score'>績效評分</button></th>"
+  foreach($d in $visible){$html+="<th><button type='button' class='watchsort' data-key='d$d'>$(E $d)</button></th>"};$html+='<th><button type="button" class="watchsort" data-key="three">3 日累積</button></th><th><button type="button" class="watchsort" data-key="ten">10 日累積</button></th><th>狀態</th><th><button type="button" class="watchsort" data-key="live">即時</button></th></tr></thead><tbody>'
   foreach($code in $group.symbols){
    $r=$results[$code];$map=@{};foreach($row in $r.Rows){if($row.Date){$map[$row.Date]=[double]$row.Close}}
    $daily=$null;$three=$null;$ten=$null;$cells='';foreach($d in $visible){
@@ -107,7 +123,7 @@ function Get-WatchHtml {
     if($prior.Count -eq 1 -and $map.ContainsKey($prior[0]) -and $map[$prior[0]] -gt 0){$livePct=100*($livePrice/$map[$prior[0]]-1);$liveSort=$livePct.ToString('R',[Globalization.CultureInfo]::InvariantCulture)}
    }
    $liveCell="<td data-key='live' data-value='$liveSort' title='$(E $liveTime)（台北時間）'>$(F $livePrice)<br>$(Format-WatchPct $livePct)<br><small>$(E $liveTime)</small></td>"
-   $name=E $r.Name;$html+="<tr data-daily='$ds' data-three='$fs'><td><strong>$(E $code)</strong><br><small>$name</small></td>$cells<td data-key='three' data-value='$fs'>$(Format-WatchPct $three)</td><td data-key='ten' data-value='$ts'>$(Format-WatchPct $ten)</td><td data-key='score' data-value='$ss'>$(Format-WatchPct $score)</td><td>$(E $status)</td>$liveCell</tr>"
+   $name=E $zhNames[$code];if(-not $name){$name=E $r.Name};$html+="<tr data-daily='$ds' data-three='$fs'><td><strong>$(E $code)</strong><br><small>$name</small></td><td data-key='score' data-value='$ss'>$(Format-WatchPct $score)</td>$cells<td data-key='three' data-value='$fs'>$(Format-WatchPct $three)</td><td data-key='ten' data-value='$ts'>$(Format-WatchPct $ten)</td><td>$(E $status)</td>$liveCell</tr>"
   };$html+='</tbody></table></div></section>'
  };$html+='</div>';return $html
 }
